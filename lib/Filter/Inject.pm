@@ -3,6 +3,7 @@ package Filter::Inject;
 use 5.006;
 use strict;
 use warnings FATAL => 'all';
+use Data::Dump qw/pp dd/;
 
 =head1 NAME
 
@@ -10,40 +11,63 @@ Filter::Inject - Inject code at compile time.
 
 =head1 VERSION
 
-Version 0.0.2
+Version 0.0.10
 
 =cut
 
-our $VERSION = '0.0.2';
+our $VERSION = '0.0.10';
+
+
+=head1 WARNING: THIS IS EXPERIMENTAL CODE!!!
+
+The API is evolving and can change at any moment!
 
 
 =head1 SYNOPSIS
 
-THIS IS EXPERIMENTAL CODE!!!
+    use Filter::Inject  macro => sub { return "CODE" };
+
+Installs a macro NAME as a pseudo module into @INC with an asociated sub-ref as callback.
+
+Using
+
+    use macro LIST;
+
+will inject the code-string returned by the $subref->(LIST) at
+compile-time and compile it right away.
 
 
-    my ($x,$y);
-    BEGIN {($x,$y)=(0,42)}
+=head1 EXAMPLE
 
-    use Filter::Inject $x,$y; warn "after same line";
-    warn "+1 line";
-    warn "+2 line";
-    warn "$x $y";             # prints "42 0"
+    #--- define swap macro
+
+    use Filter::Inject
+      swap => sub {
+         $swap::args = \@_;
+         return <<'__EXPANSION__';
+           $swap::tmp         = $swap::args->[0];
+           $swap::args->[0] = $swap::args->[1];
+           $swap::args->[1] = $swap::tmp;
+    __EXPANSION__
+      };
+
+    #--- apply swap macro
+    my ($a,$b) = (1,2);
+    use swap $a,$b;
+    warn pp [$a,$b];
+
 
 Output
 
-    IMPORT(Filter::Inject 0 42) at ../lib/Filter/Inject.pm line 56.
-    after same line at d:/Users/LanX/Filter-Inject/exp/t_inject.pl line 6.
-    --- START MACRO swap at d:/Users/LanX/Filter-Inject/exp/t_inject.pl line 9.
-    --- END MACRO swap at d:/Users/LanX/Filter-Inject/exp/t_inject.pl line 14.
-    +1 line at d:/Users/LanX/Filter-Inject/exp/t_inject.pl line 7.
-    +2 line at d:/Users/LanX/Filter-Inject/exp/t_inject.pl line 8.
-    42 0 at d:/Users/LanX/Filter-Inject/exp/t_inject.pl line 9.
+    [2, 1] at d:/LanX/perl-projects/Filter-Inject/exp/t_inject.pl line 23, <DATA> line 36.
+
+For further examples see exp/t_inject.pl
 
 
 =head1 DESCRIPTION
 
 This is a prove of concept to implement a "swap" macro.
+
 
 Here code is injected at compile time to swap the two arguments passed
 after the use.
@@ -52,11 +76,22 @@ Care is taken to adjust the line-numbers after the injection, such
 that the warn, the debugger and other tools don't get confused.
 Check line number warnings to see what I mean.
 
+Since a MACRO are implemented are technically modules they have an own
+namespace in the package ::MACRO. This is used here in the example for
+U<hygienic variables> which can't collide with the code surrounding
+the injection.
+
+Especially C<$swap::args = \@_> is a reference to aliases of the
+passed arguments, hence making the swap possible.
+
+
+
 =head1 CAVEATS
 
 The new code is only injected after the line with the use statement.
 I.e. code immidiately following the use statement in the same line will be
 executed before the injected code.
+
 
 
 =head1 EXPORT
@@ -65,63 +100,57 @@ No exports yet
 
 =cut
 
-
-use Filter::Util::Call ;
-
-
+my $module_code = join "", <DATA>;
 
 sub import {
-  warn "IMPORT(@_)";
-  my $package = shift;
 
-  my $inject  = inject(@_);
+   my $pkg = shift;
+   my ($macro_name, $macro_code) = @_;
 
-  # adjust line number to disguise injection
-  my ($file,$line) = (caller)[1,2];
-  $line++;
-  $inject .= qq{\n# line $line "$file"\n};
+   my $module_code
+     = "package $macro_name;\n"
+     . $module_code;
 
-  filter_add(
-             sub 
-             {
-               my $status = filter_read_exact(1);
-               if ( $status  > 0) {
-                 $_= $inject .";".$_;
-                 filter_del();
-               }
-               $status ;
-             }
+   # warn pp $module_code;
 
-            )
+   unshift @INC,
+     pseudo_module_hook($macro_name,$module_code);
+
+   no strict "refs";
+   *{"${macro_name}::macro"} = $macro_code;
+
 
 }
 
-sub inject {
-  local $"=',';
-  package swap;
-  our $args = \@_;
-  return q{
+
+
+sub pseudo_module_hook {
+   my ($module_name,$module_code)=@_;
+
+   # --- loader hook for @INC
+   my $c_loader = sub
      {
-       warn "--- START MACRO swap";
-       package swap; our $args;
-       my $tmp = $args->[0];
-       $args->[0] = $args->[1];
-       $args->[1] = $tmp;
-       warn "--- END MACRO swap";
-     }
-  }
+        my ( $this_sub, $file_name ) = @_;
+
+        if ( $file_name eq $module_name.'.pm' ) {
+
+           my $pre = '';
+           #$pre .= qq{warn '*** Importing inject ***';};
+           $pre .= $module_code;
+
+           return (\$pre);
+        }
+        return;
+     };
+
+   return $c_loader;
 }
-
-
-  
-1 ;
 
 
 
 =head1 AUTHOR
 
 Rolf Michael Langsdorf, C<< <lanxperl at gmail.com> >>
-
 
 
 =head1 BUGS
@@ -209,4 +238,42 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 =cut
 
-1;                              # End of Filter::Inject
+1;                                      # End of Filter::Inject
+
+__DATA__
+use Filter::Util::Call ;
+
+sub import {
+   #warn "IMPORT: ".(join',',@_);
+   my $package = shift;
+
+   # --- expand macro
+   my $injection  = macro(@_);
+
+   # --- exit if undef
+   return unless defined $injection;
+
+   # --- adjust line number to disguise injection
+   my ($file,$line) = (caller)[1,2];
+   $line++;
+   $injection .= qq{\n# line $line "$file"\n};
+
+   # --- add source filter
+   filter_add
+     (
+      sub {
+         my $status =
+           filter_read_exact(1);        # read one char into $_
+         if ( $status  > 0) {
+            $_ = $injection .";".$_;    # prepend code once
+            filter_del();               # delete source filter
+         }
+         $status ;
+      }
+
+     )
+
+  }
+
+
+1;
