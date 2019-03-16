@@ -5,22 +5,24 @@ use strict;
 use warnings FATAL => 'all';
 use Data::Dump qw/pp dd/;
 
+use Filter::Util::Call ;
+
 =head1 NAME
 
 Filter::Inject - Inject code at compile time.
 
 =head1 VERSION
 
-Version 0.0.10
+Version 0.0.15
 
 =cut
 
-our $VERSION = '0.0.10';
+our $VERSION = '0.0.15';
 
 
 =head1 WARNING: THIS IS EXPERIMENTAL CODE!!!
 
-The API is evolving and can change at any moment!
+The API is evolving and may change at any moment!
 
 
 =head1 SYNOPSIS
@@ -94,6 +96,8 @@ executed before the injected code.
 
 
 
+
+
 =head1 EXPORT
 
 No exports yet
@@ -105,6 +109,13 @@ my $module_code = join "", <DATA>;
 sub import {
 
    my $pkg = shift;
+   unless (@_) {
+      @_ =  ( inject => sub {
+                 return join ";",@_;
+              }
+            );
+   }
+
    my ($macro_name, $macro_code) = @_;
 
    my $module_code
@@ -119,6 +130,9 @@ sub import {
    no strict "refs";
    *{"${macro_name}::macro"} = $macro_code;
 
+   my $call_line = (caller)[2];
+   our @source = (undef) x $call_line; # previous source lines are unknown
+   add_read_filter(\@source);
 
 }
 
@@ -144,6 +158,22 @@ sub pseudo_module_hook {
      };
 
    return $c_loader;
+}
+
+
+sub add_read_filter {
+   my $a_source = shift;
+   filter_add
+     (
+      sub {
+         my $status =
+           filter_read();
+         if ( $status  > 0) {
+            push @$a_source , $_;
+         }
+         $status ;
+      }
+     );
 }
 
 
@@ -258,6 +288,7 @@ sub import {
    $line++;
    $injection .= qq{\n# line $line "$file"\n};
 
+
    # --- add source filter
    filter_add
      (
@@ -271,9 +302,11 @@ sub import {
          $status ;
       }
 
-     )
+     );
 
-  }
+
+}
+
 
 
 1;
