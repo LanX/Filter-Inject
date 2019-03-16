@@ -13,11 +13,11 @@ Filter::Inject - Inject code at compile time.
 
 =head1 VERSION
 
-Version 0.0.15
+Version 0.0.20
 
 =cut
 
-our $VERSION = '0.0.15';
+our $VERSION = '0.0.20';
 
 
 =head1 WARNING: THIS IS EXPERIMENTAL CODE!!!
@@ -102,6 +102,20 @@ executed before the injected code.
 
 No exports yet
 
+
+
+=head1 Functions & Macros
+
+=head2 use inject LIST;
+
+Default macro to inject LIST right away.
+
+=head2 upject(LIST)
+
+Like inject, but when used inside an =import= method it's 
+injecting into callers scope right after the use.
+
+
 =cut
 
 my $module_code = join "", <DATA>;
@@ -177,11 +191,44 @@ sub add_read_filter {
 }
 
 
+sub upject {
+   #warn "UPJECT: ";
+#   my $package = shift;
+
+   # --- expand macro
+   my $injection  = shift;
+
+   # --- exit if undef
+   return unless defined $injection;
+
+   # --- adjust line number to disguise injection
+   my ($file,$line) = (caller)[1,2];
+   $line++;
+   $injection .= qq{\n# line $line "$file"\n};
+
+
+   # --- add source filter
+   filter_add
+     (
+      sub {
+         my $status =
+           filter_read_exact(1);        # read one char into $_
+         if ( $status  > 0) {
+            $_ = $injection .";".$_;    # prepend code once
+            filter_del();               # delete source filter
+         }
+         $status ;
+      }
+
+     );
+
+
+}
+
 
 =head1 AUTHOR
 
 Rolf Michael Langsdorf, C<< <lanxperl at gmail.com> >>
-
 
 =head1 BUGS
 
