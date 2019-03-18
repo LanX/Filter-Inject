@@ -3,6 +3,7 @@
 
 This is a stub yet
 
-see L<./lib/Filter/Inject.pm> for Details
+=for html See <a href="./lib/Filter/Inject.pm">module's documentation</a>
+
 
 =cut
