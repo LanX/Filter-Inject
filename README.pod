@@ -1,9 +1,14 @@
 
+
 =pod
 
-This is a stub yet
+This README is still a stub.
 
-=for html See <a href="./lib/Filter/Inject.pm">module's documentation</a>
 
+For more information please go to the modules documentation.
+
+=for html
+--> <a href="./lib/Filter/Inject.pod">./lib/Filter/Inject.pod</a>.
 
 =cut
+
